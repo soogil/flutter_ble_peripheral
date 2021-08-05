@@ -78,6 +78,14 @@ class FlutterBlePeripheral {
   Stream<bool> getAdvertisingStateChange() {
     return _eventChannel.receiveBroadcastStream().cast<bool>();
   }
+
+  Future sendData() {
+    return _methodChannel.invokeMethod('sendData');
+  }
+
+  Stream<String> get getConnectedDeviceCountToString =>
+    _eventChannel.receiveBroadcastStream().cast<String>();
+
 }
 
 /// Special exception for illegal arguments
