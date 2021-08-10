@@ -5,6 +5,7 @@
  */
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
@@ -79,8 +80,16 @@ class FlutterBlePeripheral {
     return _eventChannel.receiveBroadcastStream().cast<bool>();
   }
 
-  Future sendData() {
-    return _methodChannel.invokeMethod('sendData');
+  Future sendData({int position = -1, required double strength}) {
+    // final map = value.asMap().map<String, double>((key, value) =>  MapEntry('$key', value));
+    final Map<String, dynamic> jsonMap = {
+      ...position > -1 ? {'position': position} : {},
+      'strength': strength,
+    };
+
+    final result = json.encode(jsonMap);
+
+    return _methodChannel.invokeMethod('sendData', result);
   }
 
   Stream<String> get getConnectedDeviceCountToString =>

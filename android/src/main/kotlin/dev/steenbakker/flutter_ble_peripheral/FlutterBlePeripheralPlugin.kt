@@ -25,9 +25,9 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONObject
 import java.util.*
 import kotlin.collections.HashSet
-import kotlin.random.Random
 
 
 class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
@@ -116,9 +116,12 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
   private fun initBluetoothGatt() {
     bluetoothManager =  context!!.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     bluetoothAdapter = bluetoothManager!!.adapter
+//    bluetoothAdapter!!.name = "Double Target Mitt"
+    bluetoothAdapter!!.name = "Authentic Target Mitt"
+//    bluetoothAdapter!!.name = "Large Target Mitt"
 
     kpnpGattCharacteristic = BluetoothGattCharacteristic(testSendUuid,
-            BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             BluetoothGattCharacteristic.PERMISSION_READ)
 
     kpnpGattCharacteristic!!.addDescriptor(
@@ -142,14 +145,11 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
     gattServer!!.addService(kpnpGattService)
 
     initAdvertiser()
-
-    if (bluetoothAdapter!!.isMultipleAdvertisementSupported) {
-      advertiser = bluetoothAdapter!!.bluetoothLeAdvertiser
-      advertiser!!.startAdvertising(advSettings, advData, advScanResponse, advCallback);
-    }
   }
 
   private fun initAdvertiser() {
+    val parcelUuid = ParcelUuid(testServiceUuid)
+
     advSettings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
@@ -157,11 +157,18 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
             .build()
     advData = AdvertiseData.Builder()
             .setIncludeTxPowerLevel(true)
-            .addServiceUuid(ParcelUuid(testServiceUuid))
+            .addServiceData(parcelUuid, "1".toByteArray())
+//            .addServiceUuid(parcelUuid)
+//            .addServiceData(parcelUuid, null)
             .build()
     advScanResponse = AdvertiseData.Builder()
             .setIncludeDeviceName(true)
             .build()
+
+    if (bluetoothAdapter!!.isMultipleAdvertisementSupported) {
+      advertiser = bluetoothAdapter!!.bluetoothLeAdvertiser
+      advertiser!!.startAdvertising(advSettings, advData, advScanResponse, advCallback);
+    }
   }
 
   private fun getClientCharacteristicConfigurationDescriptor(): BluetoothGattDescriptor {
@@ -184,9 +191,7 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
   }
 
   private fun sendData(call: MethodCall, result: MethodChannel.Result) {
-    val value = Random.nextInt(50)
-    kpnpGattCharacteristic!!.setValue(value,
-            BluetoothGattCharacteristic.FORMAT_UINT8, /* offset */ 0)
+    kpnpGattCharacteristic!!.setValue(call.arguments.toString().toByteArray())
     val indicate = ((kpnpGattCharacteristic!!.properties
             and BluetoothGattCharacteristic.PROPERTY_INDICATE)
             == BluetoothGattCharacteristic.PROPERTY_INDICATE)
@@ -195,7 +200,7 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
       gattServer!!.notifyCharacteristicChanged(device, kpnpGattCharacteristic, indicate)
     }
   }
-  
+
   override fun onListen(event: Any?, eventSink: EventChannel.EventSink) {
     this.eventSink = eventSink
   }
