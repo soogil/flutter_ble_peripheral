@@ -25,10 +25,12 @@ import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
-import org.json.JSONObject
 import java.util.*
 import kotlin.collections.HashSet
 
+
+
+enum class MittType { DOUBLE, AUTHENTIC, LARGE }
 
 class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
 
@@ -36,9 +38,9 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
           .fromString("00002901-0000-1000-8000-00805f9b34fb")
   private val characteristicConfigure = UUID
           .fromString("00002902-0000-1000-8000-00805f9b34fb")
-  private val testServiceUuid: UUID = UUID
+  private val serviceUuid: UUID = UUID
           .fromString("bf27730d-860a-4e09-889c-2d8b6a9e0fe7")
-  private val testSendUuid = UUID
+  private val gattCharacteristic = UUID
           .fromString("00002A19-0000-1000-8000-00805f9b34fb")
   private var methodChannel: MethodChannel? = null
   private var eventChannel: EventChannel? = null
@@ -107,7 +109,10 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
   // TODO: Add permission check
   override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: MethodChannel.Result) {
     when (call.method) {
-      "sendData" -> sendData(call, result)
+      "sendData" -> sendData(call)
+      "changeDeviceName" -> changeDeviceName(call, result)
+      "startAdvertising" -> startAdvertise(call)
+      "stopAdvertising" -> stopAdvertise()
       "isSupported" -> isSupported(result)
       else -> result.notImplemented()
     }
@@ -116,11 +121,8 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
   private fun initBluetoothGatt() {
     bluetoothManager =  context!!.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     bluetoothAdapter = bluetoothManager!!.adapter
-//    bluetoothAdapter!!.name = "Double Target Mitt"
-    bluetoothAdapter!!.name = "Authentic Target Mitt"
-//    bluetoothAdapter!!.name = "Large Target Mitt"
 
-    kpnpGattCharacteristic = BluetoothGattCharacteristic(testSendUuid,
+    kpnpGattCharacteristic = BluetoothGattCharacteristic(gattCharacteristic,
             BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             BluetoothGattCharacteristic.PERMISSION_READ)
 
@@ -128,9 +130,9 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
             getClientCharacteristicConfigurationDescriptor())
 
     kpnpGattCharacteristic!!.addDescriptor(
-            getCharacteristicUserDescriptionDescriptor("BATTERY_LEVEL_DESCRIPTION"))
+            getCharacteristicUserDescriptionDescriptor())
 
-    kpnpGattService = BluetoothGattService(testServiceUuid,
+    kpnpGattService = BluetoothGattService(serviceUuid,
             BluetoothGattService.SERVICE_TYPE_PRIMARY)
     kpnpGattService!!.addCharacteristic(kpnpGattCharacteristic)
 
@@ -140,15 +142,32 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
       ensureBleFeaturesAvailable()
       return
     }
-    // Add a service for a total of three services (Generic Attribute and Generic Access
-    // are present by default).
-    gattServer!!.addService(kpnpGattService)
 
-    initAdvertiser()
+    gattServer!!.addService(kpnpGattService)
   }
 
-  private fun initAdvertiser() {
-    val parcelUuid = ParcelUuid(testServiceUuid)
+  private fun changeDeviceName(call: MethodCall, result: MethodChannel.Result) {
+    var isSuccess = false
+
+    when (call.argument<Int>("mittType")) {
+      MittType.DOUBLE.ordinal -> {
+        isSuccess = bluetoothAdapter!!.setName("Double Target Mitt")
+      }
+      MittType.AUTHENTIC.ordinal -> {
+        isSuccess = bluetoothAdapter!!.setName("Authentic Target Mitt")
+      }
+      MittType.LARGE.ordinal -> {
+        isSuccess = bluetoothAdapter!!.setName("Large Target Mitt")
+      }
+    }
+
+    result.success(isSuccess)
+  }
+
+  private fun startAdvertise(call: MethodCall) {
+    val parcelUuid = ParcelUuid(serviceUuid)
+
+    val mittType: Int? = call.argument<Int>("mittType")
 
     advSettings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_BALANCED)
@@ -157,9 +176,7 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
             .build()
     advData = AdvertiseData.Builder()
             .setIncludeTxPowerLevel(true)
-            .addServiceData(parcelUuid, "1".toByteArray())
-//            .addServiceUuid(parcelUuid)
-//            .addServiceData(parcelUuid, null)
+            .addServiceData(parcelUuid, mittType.toString().toByteArray())
             .build()
     advScanResponse = AdvertiseData.Builder()
             .setIncludeDeviceName(true)
@@ -167,8 +184,14 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
 
     if (bluetoothAdapter!!.isMultipleAdvertisementSupported) {
       advertiser = bluetoothAdapter!!.bluetoothLeAdvertiser
-      advertiser!!.startAdvertising(advSettings, advData, advScanResponse, advCallback);
+      advertiser!!.startAdvertising(advSettings, advData, advScanResponse, advCallback)
     }
+  }
+
+  private fun stopAdvertise() {
+    bluetoothDevices.clear()
+//    updateConnectedDevicesStatus()
+    advertiser!!.stopAdvertising(advCallback)
   }
 
   private fun getClientCharacteristicConfigurationDescriptor(): BluetoothGattDescriptor {
@@ -179,7 +202,8 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
     return descriptor
   }
 
-  private fun getCharacteristicUserDescriptionDescriptor(defaultValue: String): BluetoothGattDescriptor {
+  private fun getCharacteristicUserDescriptionDescriptor(): BluetoothGattDescriptor {
+    val defaultValue = "BATTERY_LEVEL_DESCRIPTION"
     val descriptor = BluetoothGattDescriptor(
             characteristicUserDescription,
             BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE)
@@ -190,13 +214,13 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
     }
   }
 
-  private fun sendData(call: MethodCall, result: MethodChannel.Result) {
-    kpnpGattCharacteristic!!.setValue(call.arguments.toString().toByteArray())
+  private fun sendData(call: MethodCall) {
+    kpnpGattCharacteristic!!.setValue(call.arguments.toString())
     val indicate = ((kpnpGattCharacteristic!!.properties
             and BluetoothGattCharacteristic.PROPERTY_INDICATE)
             == BluetoothGattCharacteristic.PROPERTY_INDICATE)
+
     for (device in bluetoothDevices) {
-      // true for indication (acknowledge) and false for notification (unacknowledge).
       gattServer!!.notifyCharacteristicChanged(device, kpnpGattCharacteristic, indicate)
     }
   }
@@ -226,11 +250,9 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
         if (newState == BluetoothGatt.STATE_CONNECTED) {
           bluetoothDevices.add(device)
           updateConnectedDevicesStatus()
-          println("Connected to device: ${device.address}")
         } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
           bluetoothDevices.remove(device)
           updateConnectedDevicesStatus()
-          println("Disconnected from device")
         }
       } else {
         bluetoothDevices.remove(device)
@@ -240,7 +262,6 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
 //        val errorMessage: String = getString(R.string.status_errorWhenConnecting).toString() + ": " + status
 //        runOnUiThread(Runnable { Toast.makeText(this@Peripheral, errorMessage, Toast.LENGTH_LONG).show() })
         Log.e(TAG, "Error when connecting: $status")
-        println("Error when connecting: $status")
       }
     }
 
@@ -259,7 +280,6 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
     }
 
     override fun onNotificationSent(device: BluetoothDevice, status: Int) {
-      println("onNotificationSent ${device.name} ${status}")
       super.onNotificationSent(device, status)
     }
 
@@ -297,7 +317,7 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
                                           value: ByteArray) {
       super.onDescriptorWriteRequest(device, requestId, descriptor, preparedWrite, responseNeeded,
               offset, value)
-      Log.v(TAG, "Descriptor Write Request " + descriptor.uuid + " " + Arrays.toString(value))
+      Log.v(TAG, "Descriptor Write Request " + descriptor.uuid + " " + value.contentToString())
       var status = BluetoothGatt.GATT_SUCCESS
       if (descriptor.uuid === characteristicConfigure) {
         val characteristic = descriptor.characteristic
@@ -311,17 +331,14 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
           status = BluetoothGatt.GATT_INVALID_ATTRIBUTE_LENGTH
         } else if (Arrays.equals(value, BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE)) {
           status = BluetoothGatt.GATT_SUCCESS
-//          mCurrentServiceFragment.notificationsDisabled(characteristic)
           descriptor.value = value
         } else if (supportsNotifications &&
                 Arrays.equals(value, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)) {
           status = BluetoothGatt.GATT_SUCCESS
-//          mCurrentServiceFragment.notificationsEnabled(characteristic, false /* indicate */)
           descriptor.value = value
         } else if (supportsIndications &&
                 Arrays.equals(value, BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)) {
           status = BluetoothGatt.GATT_SUCCESS
-//          mCurrentServiceFragment.notificationsEnabled(characteristic, true /* indicate */)
           descriptor.value = value
         } else {
           status = BluetoothGatt.GATT_REQUEST_NOT_SUPPORTED
@@ -361,15 +378,12 @@ class FlutterBlePeripheralPlugin: ActivityAware, FlutterPlugin, MethodChannel.Me
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
-    TODO("Not yet implemented")
   }
 
   override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
-    TODO("Not yet implemented")
   }
 
   override fun onDetachedFromActivity() {
-    TODO("Not yet implemented")
   }
 }
 

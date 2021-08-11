@@ -92,6 +92,22 @@ class FlutterBlePeripheral {
     return _methodChannel.invokeMethod('sendData', result);
   }
 
+  Future changeDeviceName(int mittType) {
+    return _methodChannel.invokeMethod('changeDeviceName', {
+      'mittType': mittType
+    });
+  }
+
+  Future startAdvertising(int mittType) {
+    return _methodChannel.invokeMethod('startAdvertising', {
+      'mittType': mittType
+    });
+  }
+
+  Future stopAdvertising() {
+    return _methodChannel.invokeMethod('stopAdvertising');
+  }
+
   Stream<String> get getConnectedDeviceCountToString =>
     _eventChannel.receiveBroadcastStream().cast<String>();
 
